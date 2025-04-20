@@ -10,8 +10,7 @@
 #include <kern/console.h>
 #include <kern/monitor.h>
 #include <kern/kdebug.h>
-
-#include <kern/hidden.h>
+#include <kern/trap.h>
 
 #define CMDBUF_SIZE	80	// enough for one VGA text line
 
@@ -27,7 +26,6 @@ struct Command {
 static struct Command commands[] = {
 	{ "help", "Display this list of commands", mon_help },
 	{ "kerninfo", "Display information about the kernel", mon_kerninfo },
-	{ "hidden", "Run hidden test cases", exec_hidden_cases},
 };
 
 /***** Implementations of basic kernel monitor commands *****/
@@ -64,13 +62,25 @@ mon_backtrace(int argc, char **argv, struct Trapframe *tf)
 	// LAB 1: Your code here.
     // HINT 1: use read_ebp().
     // HINT 2: print the current ebp on the first line (not current_ebp[0])
+	uint32_t *ebp = (uint32_t *)read_ebp();
+	cprintf("Stack backtrace:\n");
+	while (ebp != 0){
+		uint32_t eip = ebp[1];
+		if ((uint32_t)ebp == 0xeebfdff0) {  // handle the stack created by _start
+			cprintf("  ebp %08x  eip %08x  args %08x %08x\n", ebp, eip, ebp[2], ebp[3]);
+		} else {
+			cprintf("  ebp %08x  eip %08x  args %08x %08x %08x %08x %08x\n", ebp, eip, ebp[2], ebp[3], ebp[4], ebp[5], ebp[6]);
+		}
+		struct Eipdebuginfo info;
+		if (debuginfo_eip(eip, &info) == 0) {
+			cprintf("         %s:%d: %.*s+%d\n", info.eip_file, info.eip_line, info.eip_fn_namelen, info.eip_fn_name, eip - info.eip_fn_addr);
+		}
+		ebp = (uint32_t *)(*ebp);
+	}
 	return 0;
 }
 
-int exec_hidden_cases(int argc, char **argv, struct Trapframe *tf) {
-	hidden_test_cases();
-	return 0;
-}
+
 
 /***** Kernel monitor command interpreter *****/
 
@@ -124,6 +134,8 @@ monitor(struct Trapframe *tf)
 	cprintf("Welcome to the JOS kernel monitor!\n");
 	cprintf("Type 'help' for a list of commands.\n");
 
+	if (tf != NULL)
+		print_trapframe(tf);
 
 	while (1) {
 		buf = readline("K> ");
